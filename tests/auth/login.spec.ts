@@ -3,6 +3,12 @@ import { LoginPage } from '../../pages/login.page';
 
 /**
  * Authentication Tests
+ * 
+ * Tests for login flow including:
+ * - Valid credentials login
+ * - 2FA flow completion
+ * - Invalid credentials handling
+ * - Session persistence
  */
 test.describe('Authentication', () => {
   let loginPage: LoginPage;
@@ -11,41 +17,55 @@ test.describe('Authentication', () => {
     loginPage = new LoginPage(page);
   });
 
-  test('should login with valid credentials', async () => {
-    await loginPage.goto();
-    await loginPage.login(
+  /**
+   * Test: Complete login flow with 2FA
+   * 
+   * Verifies that user can:
+   * 1. Enter valid credentials
+   * 2. Complete 2FA step if required
+   * 3. Successfully reach customer dashboard
+   */
+  test('should login with valid credentials and 2FA', async () => {
+    // Perform complete login flow
+    await loginPage.loginWith2FA(
       process.env.USERNAME || 'admin_eiji',
-      process.env.PASSWORD || '0897421942@Earth'
+      process.env.PASSWORD || '0897421942@Earth',
+      '999999'
     );
     
-    // Should redirect to 2FA or dashboard
-    await expect(loginPage.page).toHaveURL(/.*(verify|otp|customer|dashboard).*/);
+    // Verify successful login - should be on customer page
+    await expect(loginPage.page).toHaveURL(/.*customer.*/);
+    
+    // Verify logged in state
+    const isLoggedIn = await loginPage.isLoggedIn();
+    expect(isLoggedIn).toBe(true);
   });
 
-  test('should complete 2FA flow', async () => {
-    await loginPage.goto();
-    await loginPage.login(
-      process.env.USERNAME || 'admin_eiji',
-      process.env.PASSWORD || '0897421942@Earth'
-    );
-    
-    // Check if 2FA is required
-    const needs2FA = await loginPage.twoFactorInput.isVisible().catch(() => false);
-    
-    if (needs2FA) {
-      await loginPage.enterTwoFactorCode('999999');
-      await expect(loginPage.page).toHaveURL(/.*customer.*/);
-    }
-  });
-
+  /**
+   * Test: Show error for invalid credentials
+   * 
+   * Verifies that system shows appropriate error
+   * when incorrect username/password is provided
+   */
   test('should show error for invalid credentials', async () => {
     await loginPage.goto();
-    await loginPage.login('invalid_user', 'wrong_password');
     
+    // Fill invalid credentials using the locators
+    await loginPage.usernameInput.fill('invalid_user');
+    await loginPage.passwordInput.fill('wrong_password');
+    await loginPage.submitButton.click();
+    
+    // Wait for error to appear
     const errorMessage = await loginPage.getErrorMessage();
     expect(errorMessage).toBeTruthy();
   });
 
+  /**
+   * Test: Maintain session after login
+   * 
+   * Verifies that authenticated session persists
+   * across page navigations using saved auth state
+   */
   test('should maintain session after login', async ({ page }) => {
     // This test uses the saved auth state from setup
     await page.goto('/customer');
@@ -53,5 +73,22 @@ test.describe('Authentication', () => {
     // Should not redirect to login
     await expect(page).not.toHaveURL(/.*login.*/);
     await expect(page).toHaveURL(/.*customer.*/);
+  });
+
+  /**
+   * Test: Logout functionality
+   * 
+   * Verifies that logout clears session and
+   * redirects to login page
+   */
+  test('should logout successfully', async () => {
+    // First login
+    await loginPage.loginWith2FA();
+    
+    // Then logout
+    await loginPage.logout();
+    
+    // Verify redirected to login page
+    await expect(loginPage.page).toHaveURL(/.*login.*/);
   });
 });
